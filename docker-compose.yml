@@ -1,0 +1,66 @@
+# G2 Mail — app + worker + Listmonk + Postgres (do Listmonk)
+# Os dados do app (contatos, tags, automações) ficam no Supabase; o Postgres daqui é só do Listmonk.
+#
+#   cp .env.example .env   (preencher)
+#   docker compose up -d
+#   docker compose run --rm listmonk ./listmonk --install   (só na primeira vez)
+#
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LISTMONK_URL: http://listmonk:9000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - listmonk
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_INTERNAL_URL: http://app:3000
+    command: ["node", "scripts/worker.mjs"]
+    depends_on:
+      - app
+
+  listmonk:
+    image: listmonk/listmonk:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      TZ: America/Sao_Paulo
+      LISTMONK_app__address: 0.0.0.0:9000
+      LISTMONK_db__host: listmonk-db
+      LISTMONK_db__port: 5432
+      LISTMONK_db__user: listmonk
+      LISTMONK_db__password: ${LISTMONK_DB_PASSWORD}
+      LISTMONK_db__database: listmonk
+      LISTMONK_db__ssl_mode: disable
+    depends_on:
+      - listmonk-db
+    volumes:
+      - listmonk-uploads:/listmonk/uploads
+
+  listmonk-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: listmonk
+      POSTGRES_PASSWORD: ${LISTMONK_DB_PASSWORD}
+      POSTGRES_DB: listmonk
+    volumes:
+      - listmonk-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U listmonk"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  listmonk-data:
+  listmonk-uploads:
